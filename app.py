@@ -1,24 +1,26 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 import datetime
 
-# --- CONFIGURACIÓN ---
-st.set_page_config(page_title="Wine Data", layout="wide", page_icon="🍷")
+# --- CONFIGURACIÓN DE PÁGINA ---
+st.set_page_config(page_title="Wine Data Hub - USIL", layout="wide", page_icon="🍷")
 
-# --- CONEXIÓN A DB (Tus credenciales de Supabase) ---
+# --- CONEXIÓN A BASE DE DATOS ---
 def get_engine():
     try:
-        user, pas, host = st.secrets["DB_USER"], st.secrets["DB_PASS"], st.secrets["DB_HOST"]
-        port, db = st.secrets["DB_PORT"], st.secrets["DB_NAME"]
+        user = st.secrets["DB_USER"]
+        pas = st.secrets["DB_PASS"]
+        host = st.secrets["DB_HOST"]
+        port = st.secrets["DB_PORT"]
+        db = st.secrets["DB_NAME"]
         return create_engine(f"postgresql://{user}:{pas}@{host}:{port}/{db}")
     except Exception as e:
-        st.error("Error en credenciales de base de datos.")
+        st.error(f"Error en credenciales: {e}")
         return None
 
-# --- CARGA DE DATOS ---
+# --- CARGA DE DATOS (GOOGLE DRIVE) ---
 @st.cache_data
 def load_data():
     id_drive = st.secrets["DRIVE_ID"]
@@ -27,62 +29,81 @@ def load_data():
 
 try:
     df = load_data()
-    
-    st.title("🍷 Wine Analytics & Cloud Persistence")
+    engine = get_engine()
+
+    st.title("🍷 Wine Analytics & Cloud Management")
     st.markdown("---")
 
-    # sidebar para filtros globales
-    st.sidebar.header("Filtros de Análisis")
-    calidad_sel = st.sidebar.multiselect("Seleccionar Calidad", sorted(df['quality'].unique()), default=sorted(df['quality'].unique()))
-    df_filtered = df[df['quality'].isin(calidad_sel)]
+    tab1, tab2, tab3 = st.tabs(["📊 Dashboard e Informe", "💾 Filtrar y Guardar", "⚙️ Gestionar Base de Datos"])
 
-    # PESTAÑAS AVANZADAS
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 Dashboard", "📈 Análisis Estadístico", "🧪 Correlaciones", "💾 Almacenamiento Cloud"])
-
+    # --- PESTAÑA 1: DASHBOARD ---
     with tab1:
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Muestras Filtradas", len(df_filtered))
-        col2.metric("Promedio Alcohol", f"{df_filtered['alcohol'].mean():.2f}%")
-        col3.metric("pH Promedio", f"{df_filtered['pH'].mean():.2f}")
-        
-        fig_hist = px.histogram(df_filtered, x="alcohol", color="quality", title="Distribución de Alcohol por Calidad", barmode="overlay")
-        st.plotly_chart(fig_hist, use_container_width=True)
+        col1, col2 = st.columns([1, 2])
+        with col1:
+            st.subheader("Resumen Estadístico")
+            st.write(df.describe())
+        with col2:
+            fig = px.box(df, x="quality", y="alcohol", color="quality", title="Relación Alcohol vs Calidad")
+            st.plotly_chart(fig, use_container_width=True)
 
+    # --- PESTAÑA 2: FILTRAR Y GUARDAR ---
     with tab2:
-        st.subheader("Análisis Descriptivo")
-        st.write(df_filtered.describe())
+        st.subheader("Configuración de Guardado")
         
-        st.subheader("Boxplot de Variables")
-        var_box = st.selectbox("Selecciona variable para comparar", df.columns[:-1])
-        fig_box = px.box(df_filtered, x="quality", y=var_box, color="quality", title=f"Variación de {var_box} según Calidad")
-        st.plotly_chart(fig_box, use_container_width=True)
+        col_f1, col_f2 = st.columns(2)
+        with col_f1:
+            calidad_min = st.slider("Calidad mínima", 3, 9, 7)
+        with col_f2:
+            # Opción para elegir la cantidad de registros
+            cantidad = st.number_input("Cantidad de registros a guardar", min_value=1, max_value=len(df), value=5)
 
-    with tab3:
-        st.subheader("Matriz de Correlación")
-        corr = df_filtered.corr()
-        fig_corr = px.imshow(corr, text_auto=True, aspect="auto", color_continuous_scale='RdBu_r', title="Mapa de Calor de Variables Químicas")
-        st.plotly_chart(fig_corr, use_container_width=True)
+        df_filtrado = df[df['quality'] >= calidad_min].head(cantidad)
+        
+        st.write(f"Muestra de registros a sincronizar ({len(df_filtrado)}):")
+        st.dataframe(df_filtrado, use_container_width=True)
 
-    with tab4:
-        st.subheader("Persistencia en PostgreSQL (Supabase)")
-        st.write("Registros listos para subir:", len(df_filtered))
-        st.dataframe(df_filtered.head(10))
-
-        if st.button("💾 Sincronizar con Base de Datos"):
-            engine = get_engine()
+        if st.button("🚀 Confirmar y Guardar en Cloud"):
             if engine:
-                with st.spinner("Subiendo datos..."):
+                with st.spinner("Sincronizando con Supabase..."):
                     try:
-                        # Agregamos fecha de carga para auditoría
-                        df_to_save = df_filtered.copy()
-                        df_to_save['upload_at'] = datetime.datetime.now()
+                        # Limpieza de nombres para SQL (espacios por guiones bajos)
+                        df_db = df_filtrado.copy()
+                        df_db.columns = [c.replace(' ', '_') for c in df_db.columns]
+                        df_db['upload_at'] = datetime.datetime.now()
                         
-                        # Subida a la tabla
-                        df_to_save.to_sql('registros_vinos', engine, if_exists='append', index=False)
-                        st.success(f"¡Se han guardado {len(df_to_save)} filas exitosamente!")
+                        # Guardar
+                        df_db.to_sql('registros_vinos', engine, if_exists='append', index=False)
+                        
+                        st.success(f"✅ ¡Confirmado! Se guardaron {len(df_db)} registros exitosamente.")
                         st.balloons()
                     except Exception as e:
-                        st.error(f"Error al insertar: {e}")
+                        st.error(f"Error al guardar: {e}")
+
+    # --- PESTAÑA 3: GESTIONAR DB (ELIMINAR) ---
+    with tab3:
+        st.subheader("Contenido actual en la Base de Datos")
+        
+        if engine:
+            try:
+                # Leer datos actuales de la DB
+                query = "SELECT * FROM registros_vinos ORDER BY upload_at DESC"
+                df_db_actual = pd.read_sql(query, engine)
+                
+                if not df_db_actual.empty:
+                    st.write(f"Hay {len(df_db_actual)} registros en la nube.")
+                    st.dataframe(df_db_actual, use_container_width=True)
+                    
+                    st.warning("⚠️ Zona de Peligro")
+                    if st.button("🗑️ Eliminar TODOS los registros"):
+                        with engine.connect() as conn:
+                            conn.execute(text("TRUNCATE TABLE registros_vinos"))
+                            conn.commit()
+                        st.error("Todos los datos han sido eliminados de la base de datos.")
+                        st.rerun()
+                else:
+                    st.info("La base de datos está vacía.")
+            except Exception as e:
+                st.info("La tabla aún no tiene datos o no ha sido creada.")
 
 except Exception as e:
-    st.error(f"Falla crítica: {e}")
+    st.error(f"Falla en la aplicación: {e}")
