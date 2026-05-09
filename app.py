@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from sqlalchemy import create_client, create_engine
+from sqlalchemy import  create_engine
 
 # --- CONFIGURACIÓN ---
 st.set_page_config(page_title="Vinos DB Directa - USIL", layout="wide")
