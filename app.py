@@ -28,8 +28,7 @@ st.markdown("""
 st.title("🍷 Análisis Químico de Vinos en la Nube")
 st.info("""
     **Proyecto Cloud Computing**
-    Esta aplicación integra tres servicios en la nube: GitHub (Código), Google Drive (Datos) 
-    y Streamlit Cloud (Hosting). La conexión se realiza de forma segura mediante **Secrets Management**.
+    En este caso,se va mostrar el análisis realizado a una dataset de vinos.
 """)
 
 # --- CONEXIÓN A LA NUBE (SECRETS) ---
